@@ -1,90 +1,96 @@
 import streamlit as st
-import datetime
+import pandas as pd
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(
-    page_title="Assistant Facturation Nounou",
-    page_icon="👶",
-    layout="centered"
-)
+# --- CONFIGURATION ---
+st.set_page_config(page_title="Facture Nounou Connectée", page_icon="👶")
 
-# --- STYLE CSS POUR SIMPLIFIER L'INTERFACE ---
-st.markdown("""
-    <style>
-    .big-font {
-        font-size:30px !important;
-        font-weight: bold;
-        color: #FF4B4B;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #FF4B4B;
-        color: white;
-        height: 3em;
-        font-size: 20px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# ==============================================================================
+# ⚠️ COLLE TON LIEN CI-DESSOUS (Entre les guillemets)
+# ==============================================================================
+SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQZMV9OmQDVfpBrIik74i_CYA-b45b0Wicp4WtVTNjRS_uajR-gIxDsJlBGqAEVmJKaaN_exuSqJfa0/pub?output=csv" 
 
-# --- TITRE ---
-st.title("👶 Assistant Factures")
-st.write("Remplissez les cases ci-dessous pour calculer la semaine.")
-
-# --- FORMULAIRE ---
-with st.container():
-    st.subheader("1. Informations")
-    col1, col2 = st.columns(2)
-    with col1:
-        parent_name = st.text_input("Nom du Parent", placeholder="Ex: M. Martin")
-    with col2:
-        child_name = st.text_input("Prénom de l'enfant", placeholder="Ex: Léo")
-
-    st.subheader("2. Les Heures")
-    # On utilise des sliders ou des champs numériques simples
-    hours = st.number_input("Nombre d'heures travaillées", min_value=0.0, step=0.5, format="%.1f")
-    rate = st.number_input("Taux horaire (€/heure)", value=4.0, step=0.5, format="%.2f")
-
-    st.subheader("3. Les Frais Annexes")
-    col3, col4 = st.columns(2)
-    with col3:
-        meals = st.number_input("Repas / Goûters (€)", min_value=0.0, step=1.0)
-    with col4:
-        maintenance = st.number_input("Indemnités entretien (€)", min_value=0.0, step=0.1)
-
-# --- CALCUL ---
-total_salary = hours * rate
-total_fees = meals + maintenance
-total_to_pay = total_salary + total_fees
-
-# --- AFFICHAGE DES RÉSULTATS ---
+# --- TITRE & SIDEBAR ---
+st.title("👶 Suivi Mensuel Nounou")
 st.markdown("---")
-if st.button("CALCULER LE TOTAL"):
-    st.balloons()
-    
-    st.markdown(f"<p class='big-font'>Total à payer : {total_to_pay:.2f} €</p>", unsafe_allow_html=True)
-    
-    # Détails pour vérification
-    with st.expander("Voir le détail du calcul"):
-        st.write(f"💼 Salaire : {hours}h x {rate}€ = **{total_salary:.2f} €**")
-        st.write(f"🍎 Frais (Repas + Entretien) = **{total_fees:.2f} €**")
-    
-    # --- GÉNÉRATEUR DE MESSAGE WHATSAPP ---
-    st.subheader("📲 Message prêt à envoyer")
-    st.write("Copiez ce texte et envoyez-le aux parents :")
-    
-    current_date = datetime.date.today().strftime("%d/%m/%Y")
-    
-    message_text = f"""Bonjour {parent_name},
 
-Voici le récapitulatif pour la garde de {child_name} (le {current_date}) :
+with st.sidebar:
+    st.header("⚙️ Paramètres Facture")
+    parent_name = st.text_input("Nom Parent", "Famille Martin")
+    child_name = st.text_input("Enfant", "Léo")
+    rate = st.number_input("Taux horaire (€)", value=4.0, step=0.1)
+    st.markdown("---")
+    if st.button("🔄 Actualiser les données"):
+        st.rerun()
 
-- Heures effectuées : {hours}h
-- Salaire : {total_salary:.2f}€
-- Frais (repas/entretien) : {total_fees:.2f}€
+# --- CHARGEMENT DES DONNÉES ---
+@st.cache_data(ttl=60)
+def load_data():
+    try:
+        # On lit le lien CSV du Google Sheet
+        df = pd.read_csv(SHEET_URL)
+        return df
+    except Exception:
+        return None
 
-TOTAL À REGLER : {total_to_pay:.2f} €
+df_raw = load_data()
 
-Merci et bonne journée !"""
+# --- VÉRIFICATION ---
+if df_raw is None:
+    st.error("⚠️ Erreur : Je n'arrive pas à lire le tableau.")
+    st.info("Vérifie que tu as bien collé le lien 'Publier sur le web' (format CSV) dans le code, à la ligne 'SHEET_URL'.")
+    st.stop()
 
-    st.code(message_text, language=None)
-    st.info("Astuce : Cliquez sur la petite icône 'copier' en haut à droite du cadre gris ci-dessus.")
+# --- NETTOYAGE (ADAPTÉ À TON IMAGE) ---
+try:
+    # On sélectionne uniquement les colonnes B, C, D, E (Date, Heures, Repas, Entretien)
+    # On ignore la colonne A (Horodateur) et F (Évaluation)
+    df = df_raw.iloc[:, 1:5].copy()
+    
+    # On renomme les colonnes pour que les calculs fonctionnent
+    df.columns = ["Date", "Heures", "Repas", "Entretien"]
+    
+    # Nettoyage des chiffres (remplace les vides par 0)
+    df = df.fillna(0)
+except Exception as e:
+    st.error("Les colonnes de ton tableau ont changé. Vérifie ton Google Sheet.")
+    st.write("Voici ce que l'application voit :", df_raw.head())
+    st.stop()
+
+# --- AFFICHAGE DU TABLEAU ---
+st.subheader("📝 Les jours enregistrés")
+st.dataframe(df, use_container_width=True)
+
+# --- CALCULS ---
+total_heures = df["Heures"].sum()
+salaire_net = total_heures * rate
+total_indemnites = df["Repas"].sum() + df["Entretien"].sum()
+total_a_payer = salaire_net + total_indemnites
+
+# --- RÉSULTATS ---
+st.markdown(f"""
+<div style='background-color:#effdf3; padding:20px; border-radius:10px; border:1px solid #c3e6cb;'>
+    <h3 style='color:#155724; margin-top:0;'>💰 Total à payer : {total_a_payer:.2f} €</h3>
+    <p><b>Détails :</b></p>
+    <ul>
+        <li>⏱️ Heures totales : <b>{total_heures}h</b> (x {rate}€ = {salaire_net:.2f}€)</li>
+        <li>🍎 Indemnités (Repas/Entretien) : <b>{total_indemnites:.2f}€</b></li>
+    </ul>
+</div>
+""", unsafe_allow_html=True)
+
+# --- MESSAGE TYPE ---
+st.subheader("📲 Message à copier")
+message = f"""Bonjour {parent_name},
+
+Voici le récapitulatif du mois pour {child_name} :
+
+📅 Jours travaillés : {len(df)}
+⏱️ Total Heures : {total_heures}h
+💶 Salaire Net : {salaire_net:.2f}€
+🍼 Indemnités : {total_indemnites:.2f}€
+
+TOTAL À REGLER : {total_a_payer:.2f} €
+
+Merci !"""
+
+st.text_area("Texte pour WhatsApp/SMS", message, height=250)
